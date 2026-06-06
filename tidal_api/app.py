@@ -114,20 +114,17 @@ def auth_status():
 @requires_tidal_auth
 def get_tracks(session: BrowserSession):
     """
-    Get tracks from the user's history.
+    Get tracks from the user's favorites with pagination support.
     """
-    try:        
-        # TODO: Add streaminig history support if TIDAL API allows it
-        # Get user favorites or history (for now limiting to user favorites only)
+    try:
         favorites = session.user.favorites
-        
-        # Get limit from query parameter, default to 10 if not specified
-        limit = bound_limit(request.args.get('limit', default=10, type=int))
-        
-        tracks = favorites.tracks(limit=limit, order="DATE", order_direction="DESC")        
+        limit = max(1, request.args.get('limit', default=50, type=int))
+        offset = max(0, request.args.get('offset', default=0, type=int))
+
+        tracks = favorites.tracks(limit=limit, offset=offset, order="DATE", order_direction="DESC")
         track_list = [format_track_data(track) for track in tracks]
 
-        return jsonify({"tracks": track_list})
+        return jsonify({"tracks": track_list, "offset": offset, "limit": limit, "count": len(track_list)})
     except Exception as e:
         return jsonify({"error": f"Error fetching tracks: {str(e)}"}), 500
     
@@ -331,31 +328,67 @@ def get_user_playlists(session: BrowserSession):
 @requires_tidal_auth
 def get_playlist_tracks(playlist_id: str, session: BrowserSession):
     """
-    Get tracks from a specific TIDAL playlist.
+    Get tracks from a specific TIDAL playlist with pagination support.
     """
     try:
-        # Get limit from query parameter, default to 100 if not specified
-        limit = bound_limit(request.args.get('limit', default=100, type=int))
-        
-        # Get the playlist object
+        limit = max(1, min(500, request.args.get('limit', default=100, type=int)))
+        offset = max(0, request.args.get('offset', default=0, type=int))
+
         playlist = session.playlist(playlist_id)
         if not playlist:
             return jsonify({"error": f"Playlist with ID {playlist_id} not found"}), 404
-            
-        # Get tracks from the playlist with pagination if needed
-        tracks = playlist.items(limit=limit)
-        
-        # Format track data
+
+        tracks = playlist.items(limit=limit, offset=offset)
         track_list = [format_track_data(track) for track in tracks]
-        
+
         return jsonify({
             "playlist_id": playlist.id,
             "tracks": track_list,
-            "total_tracks": len(track_list)
+            "offset": offset,
+            "limit": limit,
+            "count": len(track_list),
+            "total_tracks": playlist.num_tracks if hasattr(playlist, 'num_tracks') else len(track_list),
         })
-        
+
     except Exception as e:
         return jsonify({"error": f"Error fetching playlist tracks: {str(e)}"}), 500
+
+
+@app.route('/api/mixes', methods=['GET'])
+@requires_tidal_auth
+def get_mixes(session: BrowserSession):
+    """
+    Get the user's TIDAL algorithmic mixes (My Daily Discovery, New Arrivals, etc.).
+    """
+    try:
+        mix_list = []
+        mixes = session.user.get_my_mixes()
+        for mix in mixes:
+            mix_list.append({
+                "id": str(mix.id),
+                "title": mix.title if hasattr(mix, 'title') else str(mix.id),
+                "sub_title": getattr(mix, 'sub_title', ''),
+                "track_count": getattr(mix, 'number_of_tracks', 0),
+            })
+        return jsonify({"mixes": mix_list})
+    except Exception as e:
+        return jsonify({"mixes": [], "warning": f"Could not fetch mixes: {str(e)}"}), 200
+
+
+@app.route('/api/mixes/<mix_id>/tracks', methods=['GET'])
+@requires_tidal_auth
+def get_mix_tracks(mix_id: str, session: BrowserSession):
+    """
+    Get tracks from a specific TIDAL mix.
+    """
+    try:
+        limit = max(1, min(500, request.args.get('limit', default=100, type=int)))
+        mix = session.mix(mix_id)
+        all_tracks = mix.items()
+        track_list = [format_track_data(track) for track in all_tracks[:limit]]
+        return jsonify({"mix_id": mix_id, "tracks": track_list, "count": len(track_list)})
+    except Exception as e:
+        return jsonify({"error": f"Error fetching mix tracks: {str(e)}"}), 500
     
 
 @app.route('/api/playlists/<playlist_id>', methods=['DELETE'])
