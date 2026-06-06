@@ -389,4 +389,4 @@ if __name__ == '__main__':
     port = int(os.environ.get("TIDAL_MCP_PORT", 5050))
     
     print(f"Starting Flask app on port {port}")
-    app.run(debug=True, port=port)
+    app.run(debug=False, use_reloader=False, port=port)
