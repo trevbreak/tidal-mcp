@@ -5,6 +5,8 @@ import functools
 from flask import Flask, request, jsonify
 from pathlib import Path
 
+from tidalapi.user import ItemOrder, OrderDirection
+
 from browser_session import BrowserSession
 from utils import format_track_data, bound_limit
 
@@ -121,7 +123,10 @@ def get_tracks(session: BrowserSession):
         limit = max(1, request.args.get('limit', default=50, type=int))
         offset = max(0, request.args.get('offset', default=0, type=int))
 
-        tracks = favorites.tracks(limit=limit, offset=offset, order="DATE", order_direction="DESC")
+        tracks = favorites.tracks(
+            limit=limit, offset=offset,
+            order=ItemOrder.Date, order_direction=OrderDirection.Descending,
+        )
         track_list = [format_track_data(track) for track in tracks]
 
         return jsonify({"tracks": track_list, "offset": offset, "limit": limit, "count": len(track_list)})
@@ -362,13 +367,13 @@ def get_mixes(session: BrowserSession):
     """
     try:
         mix_list = []
-        mixes = session.user.get_my_mixes()
+        mixes = session.mixes()  # tidalapi >=0.8.x: returns a Page of Mix objects
         for mix in mixes:
             mix_list.append({
                 "id": str(mix.id),
                 "title": mix.title if hasattr(mix, 'title') else str(mix.id),
                 "sub_title": getattr(mix, 'sub_title', ''),
-                "track_count": getattr(mix, 'number_of_tracks', 0),
+                "track_count": getattr(mix, 'number_of_tracks', 0) or 0,
             })
         return jsonify({"mixes": mix_list})
     except Exception as e:
